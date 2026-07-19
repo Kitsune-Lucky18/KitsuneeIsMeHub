@@ -1,7 +1,6 @@
 --[[
     ============================================================
      MyHub UI Library  —  by Kitsune_Lucky18 :)
- 
      Fitur:
        - Window, Tab, Section
        - Toggle, Button, Slider, Dropdown, Label
@@ -165,18 +164,36 @@ function MyHub:CreateWindow(config)
         TextSize = 16,
         TextColor3 = Theme.Text,
         BackgroundTransparency = 1,
-        Size = UDim2.new(1, -160, 1, 0),
+        Size = UDim2.new(1, -190, 1, 0),
         Position = UDim2.fromOffset(16, 0),
         TextXAlignment = Enum.TextXAlignment.Left,
         Parent = TopBar,
     })
 
-    -- Theme switch buttons (Black / White / Kitsune) di pojok kanan atas
-    local ThemeBar = Create("Frame", {
-        Size = UDim2.fromOffset(96, 24),
-        Position = UDim2.new(1, -212, 0.5, -12),
+    -- ==== KONTROL KANAN: theme dots, minimize, close — dikelompokkan rapi ====
+    local Controls = Create("Frame", {
+        Name = "Controls",
+        AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, -14, 0.5, 0),
+        Size = UDim2.fromOffset(0, 28),
+        AutomaticSize = Enum.AutomaticSize.X,
         BackgroundTransparency = 1,
         Parent = TopBar,
+    }, {
+        Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal,
+            Padding = UDim.new(0, 10),
+            VerticalAlignment = Enum.VerticalAlignment.Center,
+            SortOrder = Enum.SortOrder.LayoutOrder,
+        }),
+    })
+
+    -- Theme switch buttons (Black / White / Kitsune)
+    local ThemeBar = Create("Frame", {
+        Size = UDim2.fromOffset(72, 24),
+        LayoutOrder = 1,
+        BackgroundTransparency = 1,
+        Parent = Controls,
     }, {
         Create("UIListLayout", {
             FillDirection = Enum.FillDirection.Horizontal,
@@ -185,28 +202,58 @@ function MyHub:CreateWindow(config)
         }),
     })
 
+    -- garis pemisah kecil antara theme dots dan tombol window
+    Create("Frame", {
+        Size = UDim2.fromOffset(1, 18),
+        LayoutOrder = 2,
+        BackgroundColor3 = Theme.Stroke,
+        BorderSizePixel = 0,
+        Parent = Controls,
+    })
+
     -- Minimize button
     local MinimizeBtn = Create("TextButton", {
         Text = "_",
         Font = Enum.Font.GothamBold,
-        TextSize = 20,
+        TextSize = 18,
         TextColor3 = Theme.SubText,
+        BackgroundColor3 = Theme.ElementBG,
         BackgroundTransparency = 1,
-        Size = UDim2.fromOffset(24, 24),
-        Position = UDim2.new(1, -100, 0.5, -14),
-        Parent = TopBar,
+        AutoButtonColor = false,
+        Size = UDim2.fromOffset(26, 26),
+        LayoutOrder = 3,
+        Parent = Controls,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
     })
+    MinimizeBtn.MouseEnter:Connect(function()
+        Tween(MinimizeBtn, { BackgroundTransparency = 0 }, 0.12)
+    end)
+    MinimizeBtn.MouseLeave:Connect(function()
+        Tween(MinimizeBtn, { BackgroundTransparency = 1 }, 0.12)
+    end)
 
+    -- Close button
     local CloseBtn = Create("TextButton", {
         Text = "X",
         Font = Enum.Font.GothamBold,
         TextSize = 14,
         TextColor3 = Theme.SubText,
+        BackgroundColor3 = Color3.fromRGB(230, 70, 70),
         BackgroundTransparency = 1,
-        Size = UDim2.fromOffset(24, 24),
-        Position = UDim2.new(1, -38, 0.5, -12),
-        Parent = TopBar,
+        AutoButtonColor = false,
+        Size = UDim2.fromOffset(26, 26),
+        LayoutOrder = 4,
+        Parent = Controls,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
     })
+    CloseBtn.MouseEnter:Connect(function()
+        Tween(CloseBtn, { BackgroundTransparency = 0, TextColor3 = Color3.fromRGB(255,255,255) }, 0.12)
+    end)
+    CloseBtn.MouseLeave:Connect(function()
+        Tween(CloseBtn, { BackgroundTransparency = 1, TextColor3 = Theme.SubText }, 0.12)
+    end)
     CloseBtn.MouseButton1Click:Connect(function()
         Tween(Main, { Size = UDim2.fromOffset(0, 0) }, 0.2)
         task.wait(0.2)
@@ -272,7 +319,7 @@ function MyHub:CreateWindow(config)
             Parent = ThemeBar,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(1, 0) }),
-            Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+            Create("UIStroke", { Color = Color3.fromRGB(150, 150, 150), Thickness = 1.4 }),
         })
         dot.MouseButton1Click:Connect(function()
             Window:SetTheme(key)
