@@ -1,13 +1,14 @@
 --[[
     ============================================================
-     KitsuneeIsMe UI Library  —  by Kitsune_Lucky18 :)
-     Gaya terinspirasi dari Rayfield, dibuat ulang dari nol.
+     MyHub UI Library  —  by Kitsune_Lucky18 :)
      Fitur:
        - Window, Tab, Section
        - Toggle, Button, Slider, Dropdown, Label
        - 3 Tema: Black, White, Kitsune (Orange)
        - Animasi smooth (TweenService)
        - Draggable window
+       - Minimize / restore window
+       - Key System (kunci key sebelum hub kebuka, dengan simpan key opsional)
        - Flags system (simpan value tiap elemen)
     ============================================================
 ]]
@@ -172,7 +173,7 @@ function MyHub:CreateWindow(config)
     -- Theme switch buttons (Black / White / Kitsune) di pojok kanan atas
     local ThemeBar = Create("Frame", {
         Size = UDim2.fromOffset(96, 24),
-        Position = UDim2.new(1, -110, 0.5, -12),
+        Position = UDim2.new(1, -212, 0.5, -12),
         BackgroundTransparency = 1,
         Parent = TopBar,
     }, {
@@ -183,6 +184,18 @@ function MyHub:CreateWindow(config)
         }),
     })
 
+    -- Minimize button
+    local MinimizeBtn = Create("TextButton", {
+        Text = "–",
+        Font = Enum.Font.GothamBold,
+        TextSize = 18,
+        TextColor3 = Theme.SubText,
+        BackgroundTransparency = 1,
+        Size = UDim2.fromOffset(24, 24),
+        Position = UDim2.new(1, -100, 0.5, -12),
+        Parent = TopBar,
+    })
+
     local CloseBtn = Create("TextButton", {
         Text = "✕",
         Font = Enum.Font.GothamBold,
@@ -190,7 +203,7 @@ function MyHub:CreateWindow(config)
         TextColor3 = Theme.SubText,
         BackgroundTransparency = 1,
         Size = UDim2.fromOffset(24, 24),
-        Position = UDim2.new(1, -30, 0.5, -12),
+        Position = UDim2.new(1, -38, 0.5, -12),
         Parent = TopBar,
     })
     CloseBtn.MouseButton1Click:Connect(function()
@@ -229,6 +242,7 @@ function MyHub:CreateWindow(config)
         ThemeName = ThemeName,
         Tabs = {},
         CurrentTab = nil,
+        _ThemeRefreshers = {},
     }, MyHub)
 
     -- isi tombol tema sekarang (butuh Window:SetTheme, jadi didefinisikan setelah class)
@@ -255,6 +269,30 @@ function MyHub:CreateWindow(config)
     Window._ContentArea = ContentArea
     Window._TopBar = TopBar
     Window._NameLabel = Name
+
+    -- ==== MINIMIZE LOGIC ====
+    Window._Minimized = false
+    Window._OriginalSize = Main.Size
+
+    MinimizeBtn.MouseButton1Click:Connect(function()
+        Window._Minimized = not Window._Minimized
+        if Window._Minimized then
+            MinimizeBtn.Text = "▢"
+            TabList.Visible = false
+            ContentArea.Visible = false
+            Tween(Main, { Size = UDim2.new(0, Window._OriginalSize.X.Offset, 0, 44) }, 0.2)
+        else
+            MinimizeBtn.Text = "–"
+            Tween(Main, { Size = Window._OriginalSize }, 0.2)
+            task.wait(0.2)
+            TabList.Visible = true
+            ContentArea.Visible = true
+        end
+    end)
+
+    table.insert(Window._ThemeRefreshers, function(Theme)
+        MinimizeBtn.TextColor3 = Theme.SubText
+    end)
 
     return Window
 end
@@ -283,7 +321,6 @@ MyHub.__newindex = function(t, k, v) rawset(t, k, v) end
 ----------------------------------------------------------------
 function MyHub:CreateTab(name)
     local Window = self
-    Window._ThemeRefreshers = Window._ThemeRefreshers or {}
 
     local TabButton = Create("TextButton", {
         Size = UDim2.new(1, 0, 0, 32),
@@ -703,6 +740,213 @@ function MyHub:CreateTab(name)
     end
 
     return Tab
+end
+
+----------------------------------------------------------------
+-- CreateKeySystem: layar kunci key sebelum hub kebuka
+----------------------------------------------------------------
+-- Contoh pakai:
+--   MyHub:CreateKeySystem({
+--       Title    = "KitsuneeIsMe Library",
+--       Subtitle = "Masukkan key untuk melanjutkan, " .. game.Players.LocalPlayer.Name,
+--       Keys     = {"KITSUNE-LUCKY18"},
+--       KeyLink  = "https://link-kamu.com/get-key",
+--       SaveKey  = true,
+--       Theme    = "Kitsune",
+--       OnSuccess = function()
+--           local Window = MyHub:CreateWindow({ Name = "Hub Ku", Theme = "Kitsune" })
+--           -- ... lanjut bikin tab di sini
+--       end,
+--   })
+function MyHub:CreateKeySystem(config)
+    config = config or {}
+    local Title     = config.Title or "Key System"
+    local Subtitle  = config.Subtitle or "Masukkan key untuk melanjutkan"
+    local Note      = config.Note or "Jangan bagikan key kamu ke orang lain."
+    local Keys      = config.Keys or (config.Key and { config.Key }) or {}
+    local KeyLink   = config.KeyLink
+    local SaveKey   = config.SaveKey ~= false
+    local FileName  = config.FileName or "KitsuneeIsMe_Key.txt"
+    local ThemeName = config.Theme or "Kitsune"
+    local Theme     = Themes[ThemeName] or Themes.Kitsune
+    local OnSuccess = config.OnSuccess or function() end
+
+    local function isValidKey(input)
+        for _, k in ipairs(Keys) do
+            if tostring(input):gsub("%s+", "") == tostring(k):gsub("%s+", "") then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- cek key yang sudah tersimpan (kalau executor support file system)
+    local function readSavedKey()
+        local ok, result = pcall(function()
+            if typeof(isfile) == "function" and isfile(FileName) then
+                return readfile(FileName)
+            end
+        end)
+        if ok then return result end
+        return nil
+    end
+
+    local function saveKey(key)
+        if not SaveKey then return end
+        pcall(function()
+            if typeof(writefile) == "function" then
+                writefile(FileName, key)
+            end
+        end)
+    end
+
+    local saved = readSavedKey()
+    if saved and isValidKey(saved) then
+        OnSuccess()
+        return
+    end
+
+    -- bersihkan gui key lama kalau ada
+    local existing = CoreGui:FindFirstChild("MyHub_KeySystem")
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Create("ScreenGui", {
+        Name = "MyHub_KeySystem",
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        Parent = CoreGui,
+    })
+
+    local Backdrop = Create("Frame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BackgroundTransparency = 0.45,
+        BorderSizePixel = 0,
+        Parent = ScreenGui,
+    })
+
+    local Panel = Create("Frame", {
+        Size = UDim2.fromOffset(340, 240),
+        Position = UDim2.new(0.5, -170, 0.5, -120),
+        BackgroundColor3 = Theme.Background,
+        BorderSizePixel = 0,
+        Parent = ScreenGui,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 12) }),
+        Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+    })
+
+    Create("TextLabel", {
+        Text = Title,
+        Font = Enum.Font.GothamBold,
+        TextSize = 18,
+        TextColor3 = Theme.Text,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -32, 0, 26),
+        Position = UDim2.fromOffset(16, 20),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = Panel,
+    })
+
+    Create("TextLabel", {
+        Text = Subtitle,
+        Font = Enum.Font.Gotham,
+        TextSize = 13,
+        TextColor3 = Theme.SubText,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -32, 0, 34),
+        Position = UDim2.fromOffset(16, 46),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = true,
+        Parent = Panel,
+    })
+
+    local InputBox = Create("TextBox", {
+        Size = UDim2.new(1, -32, 0, 38),
+        Position = UDim2.fromOffset(16, 92),
+        BackgroundColor3 = Theme.ElementBG,
+        Text = "",
+        PlaceholderText = "Masukkan key di sini...",
+        PlaceholderColor3 = Theme.SubText,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextColor3 = Theme.Text,
+        ClearTextOnFocus = false,
+        Parent = Panel,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 8) }),
+        Create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
+    })
+
+    local StatusLabel = Create("TextLabel", {
+        Text = Note,
+        Font = Enum.Font.Gotham,
+        TextSize = 12,
+        TextColor3 = Theme.SubText,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -32, 0, 18),
+        Position = UDim2.fromOffset(16, 136),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextWrapped = true,
+        Parent = Panel,
+    })
+
+    local SubmitBtn = Create("TextButton", {
+        Text = "Unlock",
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        TextColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundColor3 = Theme.Accent,
+        Size = UDim2.new(1, -32, 0, 38),
+        Position = UDim2.fromOffset(16, 164),
+        AutoButtonColor = false,
+        Parent = Panel,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 8) }),
+    })
+
+    SubmitBtn.MouseButton1Click:Connect(function()
+        local input = InputBox.Text
+        if isValidKey(input) then
+            saveKey(input)
+            StatusLabel.TextColor3 = Color3.fromRGB(120, 220, 130)
+            StatusLabel.Text = "Key benar! Membuka hub..."
+            Tween(Panel, { Size = UDim2.fromOffset(340, 0) }, 0.25)
+            task.wait(0.3)
+            ScreenGui:Destroy()
+            OnSuccess()
+        else
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+            StatusLabel.Text = "Key salah, coba lagi."
+            Tween(Panel, { Position = Panel.Position + UDim2.fromOffset(8, 0) }, 0.06)
+            task.wait(0.06)
+            Tween(Panel, { Position = Panel.Position - UDim2.fromOffset(16, 0) }, 0.06)
+            task.wait(0.06)
+            Tween(Panel, { Position = UDim2.new(0.5, -170, 0.5, -120) }, 0.06)
+        end
+    end)
+
+    if KeyLink then
+        local GetKeyBtn = Create("TextButton", {
+            Text = "Get Key",
+            Font = Enum.Font.Gotham,
+            TextSize = 12,
+            TextColor3 = Theme.Accent,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -32, 0, 16),
+            Position = UDim2.fromOffset(16, 206),
+            Parent = Panel,
+        })
+        GetKeyBtn.MouseButton1Click:Connect(function()
+            local ok = pcall(function()
+                setclipboard(KeyLink)
+            end)
+            StatusLabel.TextColor3 = Theme.SubText
+            StatusLabel.Text = ok and "Link disalin ke clipboard!" or KeyLink
+        end)
+    end
+
+    MakeDraggable(Panel, Panel)
 end
 
 return MyHub
