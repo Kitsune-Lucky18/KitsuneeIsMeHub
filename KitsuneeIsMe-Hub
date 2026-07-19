@@ -1,6 +1,7 @@
 --[[
     ============================================================
      MyHub UI Library  —  by Kitsune_Lucky18 :)
+ 
      Fitur:
        - Window, Tab, Section
        - Toggle, Button, Slider, Dropdown, Label
@@ -186,18 +187,18 @@ function MyHub:CreateWindow(config)
 
     -- Minimize button
     local MinimizeBtn = Create("TextButton", {
-        Text = "–",
+        Text = "_",
         Font = Enum.Font.GothamBold,
-        TextSize = 18,
+        TextSize = 20,
         TextColor3 = Theme.SubText,
         BackgroundTransparency = 1,
         Size = UDim2.fromOffset(24, 24),
-        Position = UDim2.new(1, -100, 0.5, -12),
+        Position = UDim2.new(1, -100, 0.5, -14),
         Parent = TopBar,
     })
 
     local CloseBtn = Create("TextButton", {
-        Text = "✕",
+        Text = "X",
         Font = Enum.Font.GothamBold,
         TextSize = 14,
         TextColor3 = Theme.SubText,
@@ -214,16 +215,32 @@ function MyHub:CreateWindow(config)
 
     MakeDraggable(TopBar, Main)
 
-    -- ==== TAB LIST (kiri) ====
+    -- ==== TAB LIST (kiri) — dikasih panel & garis pemisah biar nggak nyatu ====
+    local TabListBG = Create("Frame", {
+        Name = "TabListBG",
+        Size = UDim2.new(0, 150, 1, -54),
+        Position = UDim2.fromOffset(0, 54),
+        BackgroundColor3 = Theme.Secondary,
+        BorderSizePixel = 0,
+        Parent = Main,
+    })
+    local Divider = Create("Frame", {
+        Name = "Divider",
+        Size = UDim2.new(0, 1, 1, 0),
+        Position = UDim2.new(1, -1, 0, 0),
+        BackgroundColor3 = Theme.Stroke,
+        BorderSizePixel = 0,
+        Parent = TabListBG,
+    })
+
     local TabList = Create("Frame", {
         Name = "TabList",
-        Size = UDim2.new(0, 140, 1, -54),
-        Position = UDim2.fromOffset(0, 54),
+        Size = UDim2.new(1, -20, 1, -8),
+        Position = UDim2.fromOffset(10, 8),
         BackgroundTransparency = 1,
-        Parent = Main,
+        Parent = TabListBG,
     }, {
         Create("UIListLayout", { Padding = UDim.new(0, 4) }),
-        Create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingTop = UDim.new(0, 4) }),
     })
 
     -- ==== CONTENT AREA (kanan) ====
@@ -266,6 +283,8 @@ function MyHub:CreateWindow(config)
     makeThemeDot(Themes.Kitsune.Accent, "Kitsune")
 
     Window._TabList = TabList
+    Window._TabListBG = TabListBG
+    Window._Divider = Divider
     Window._ContentArea = ContentArea
     Window._TopBar = TopBar
     Window._NameLabel = Name
@@ -277,15 +296,15 @@ function MyHub:CreateWindow(config)
     MinimizeBtn.MouseButton1Click:Connect(function()
         Window._Minimized = not Window._Minimized
         if Window._Minimized then
-            MinimizeBtn.Text = "▢"
-            TabList.Visible = false
+            MinimizeBtn.Text = "+"
+            TabListBG.Visible = false
             ContentArea.Visible = false
             Tween(Main, { Size = UDim2.new(0, Window._OriginalSize.X.Offset, 0, 44) }, 0.2)
         else
-            MinimizeBtn.Text = "–"
+            MinimizeBtn.Text = "_"
             Tween(Main, { Size = Window._OriginalSize }, 0.2)
             task.wait(0.2)
-            TabList.Visible = true
+            TabListBG.Visible = true
             ContentArea.Visible = true
         end
     end)
@@ -308,6 +327,8 @@ function MyHub:SetTheme(themeName)
 
     Tween(self.Main, { BackgroundColor3 = Theme.Background }, 0.2)
     Tween(self._TopBar, { BackgroundColor3 = Theme.Secondary }, 0.2)
+    if self._TabListBG then Tween(self._TabListBG, { BackgroundColor3 = Theme.Secondary }, 0.2) end
+    if self._Divider then Tween(self._Divider, { BackgroundColor3 = Theme.Stroke }, 0.2) end
 
     -- refresh semua elemen yang terdaftar via tag ElementRefs
     for _, refresh in ipairs(self._ThemeRefreshers or {}) do
