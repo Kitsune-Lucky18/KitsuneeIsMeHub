@@ -1,5 +1,5 @@
 --[[
-    ============================================================
+    =============================================================
      KitsuneeIsMe UI Library  —  by Kitsune_Lucky18 
      Fitur:
        - Window, Tab, Section, Paragraph
@@ -9,11 +9,11 @@
        - Notifikasi toast (KitsuneeIsMe:Notify)
        - 3 Tema: Black, White, Kitsune (Orange)
        - Animasi smooth (TweenService)
-       - Draggable window
-       - Minimize / restore window
+       - Draggable windows
+       - Minimize / restore windows
        - Key System (kunci key sebelum hub kebuka, dengan simpan key opsional)
        - Flags system (simpan value tiap elemen)
-    ============================================================
+    =============================================================
 ]]
 
 local TweenService = game:GetService("TweenService")
