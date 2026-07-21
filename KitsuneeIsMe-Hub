@@ -1,6 +1,7 @@
 --[[
-    =============================================================
-     KitsuneeIsMe UI Library  —  by Kitsune_Lucky18 
+    ============================================================
+     KitsuneeIsMe UI Library  —  by Kitsune_Lucky18
+     Gaya terinspirasi dari Rayfield, dibuat ulang dari nol.
      Fitur:
        - Window, Tab, Section, Paragraph
        - Toggle, Button, Slider, Dropdown, Label, ColorPicker, Keybind
@@ -9,11 +10,16 @@
        - Notifikasi toast (KitsuneeIsMe:Notify)
        - 3 Tema: Black, White, Kitsune (Orange)
        - Animasi smooth (TweenService)
-       - Draggable windows
-       - Minimize / restore windows
+       - Draggable window
+       - Minimize / restore window
        - Key System (kunci key sebelum hub kebuka, dengan simpan key opsional)
        - Flags system (simpan value tiap elemen)
-    =============================================================
+
+     Cara pakai (taruh di GitHub, akses via raw link):
+        local KitsuneeIsMe = loadstring(game:HttpGet(
+            "https://raw.githubusercontent.com/USERNAME/REPO/main/KitsuneeIsMe.lua"
+        ))()
+    ============================================================
 ]]
 
 local TweenService = game:GetService("TweenService")
