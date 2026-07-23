@@ -1,18 +1,6 @@
 --[[
     ============================================================
      KitsuneeIsMe UI Library  —  by Kitsune_Lucky18
-     Fitur:
-       - Window, Tab, Section, Paragraph
-       - Toggle, Button, Slider, Dropdown, Label, ColorPicker, Keybind
-       - Icon support di Window & Tab (mirip Rayfield)
-       - Player info panel (avatar + nama) di sidebar
-       - Notifikasi toast (KitsuneeIsMe:Notify)
-       - 3 Tema: Black, White, Kitsune (Orange)
-       - Animasi smooth (TweenService)
-       - Draggable window
-       - Minimize / restore window
-       - Key System (kunci key sebelum hub kebuka, dengan simpan key opsional)
-       - Flags system (simpan value tiap elemen)
     ============================================================
 ]]
 
@@ -27,6 +15,8 @@ local LocalPlayer = Players.LocalPlayer
 local KitsuneeIsMe = {}
 KitsuneeIsMe.Flags = {}
 KitsuneeIsMe.Icons = {} -- diisi lewat KitsuneeIsMe:SetIcon(name, id) atau KitsuneeIsMe:LoadIconPack(url)
+KitsuneeIsMe._FlagSetters = {} -- internal: Flag -> function(value) buat LoadConfig
+KitsuneeIsMe._Windows = {} -- internal: daftar semua Window aktif, buat SetAccent/Destroy
 KitsuneeIsMe.__index = KitsuneeIsMe
 
 ----------------------------------------------------------------
@@ -245,7 +235,7 @@ function KitsuneeIsMe:CreateWindow(config)
         titleOffset = 44
     end
 
-    Create("TextLabel", {
+    local TitleLabel = Create("TextLabel", {
         Text = Name,
         Font = Enum.Font.GothamBold,
         TextSize = 16,
@@ -472,31 +462,76 @@ function KitsuneeIsMe:CreateWindow(config)
     Window._ContentArea = ContentArea
     Window._TopBar = TopBar
     Window._NameLabel = Name
+    Window._TitleLabel = TitleLabel
 
-    -- ==== MINIMIZE LOGIC ====
+    -- ==== MINIMIZE / MAXIMIZE ====
     Window._Minimized = false
     Window._OriginalSize = Main.Size
 
+    function Window:Minimize()
+        if self._Minimized then return end
+        self._Minimized = true
+        MinimizeBtn.Text = "+"
+        TabListBG.Visible = false
+        ContentArea.Visible = false
+        Tween(Main, { Size = UDim2.new(0, self._OriginalSize.X.Offset, 0, 44) }, 0.2)
+    end
+
+    function Window:Maximize()
+        if not self._Minimized then return end
+        self._Minimized = false
+        MinimizeBtn.Text = "_"
+        Tween(Main, { Size = self._OriginalSize }, 0.2)
+        task.wait(0.2)
+        TabListBG.Visible = true
+        ContentArea.Visible = true
+    end
+
     MinimizeBtn.MouseButton1Click:Connect(function()
-        Window._Minimized = not Window._Minimized
-        if Window._Minimized then
-            MinimizeBtn.Text = "+"
-            TabListBG.Visible = false
-            ContentArea.Visible = false
-            Tween(Main, { Size = UDim2.new(0, Window._OriginalSize.X.Offset, 0, 44) }, 0.2)
-        else
-            MinimizeBtn.Text = "_"
-            Tween(Main, { Size = Window._OriginalSize }, 0.2)
-            task.wait(0.2)
-            TabListBG.Visible = true
-            ContentArea.Visible = true
-        end
+        if Window._Minimized then Window:Maximize() else Window:Minimize() end
     end)
+
+    -- ==== HIDE / SHOW (sembunyikan seluruh hub, misal lewat keybind) ====
+    function Window:Hide()
+        ScreenGui.Enabled = false
+    end
+
+    function Window:Show()
+        ScreenGui.Enabled = true
+    end
+
+    -- ==== SetTitle ====
+    function Window:SetTitle(text)
+        self._NameLabel = text
+        TitleLabel.Text = text
+    end
+
+    -- ==== SelectTab: pilih tab lewat objek Tab, nama, atau index ====
+    function Window:SelectTab(identifier)
+        for i, t in ipairs(self.Tabs) do
+            local match = (t == identifier) or (t.Name == identifier) or (i == identifier)
+            if match then
+                if t._Select then
+                    t._Select()
+                else
+                    for _, other in ipairs(self.Tabs) do
+                        other.Page.Visible = false
+                    end
+                    t.Page.Visible = true
+                    self.CurrentTab = t
+                end
+                return t
+            end
+        end
+        return nil
+    end
 
     table.insert(Window._ThemeRefreshers, function(Theme)
         MinimizeBtn.TextColor3 = Theme.SubText
         PlayerPanel.BackgroundColor3 = Theme.ElementBG
     end)
+
+    table.insert(KitsuneeIsMe._Windows, Window)
 
     return Window
 end
@@ -525,103 +560,19 @@ KitsuneeIsMe.__newindex = function(t, k, v) rawset(t, k, v) end
 ----------------------------------------------------------------
 -- CreateTab
 ----------------------------------------------------------------
-function KitsuneeIsMe:CreateTab(name, icon)
-    local Window = self
-    local iconUri = resolveIcon(icon)
-    local textInset = iconUri and 34 or 12
-
-    local TabButton = Create("TextButton", {
-        Size = UDim2.new(1, 0, 0, 32),
-        BackgroundColor3 = Window.Theme.ElementBG,
-        Text = "",
-        AutoButtonColor = false,
-        Parent = Window._TabList,
-    }, {
-        Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
-    })
-
-    local TabIcon
-    if iconUri then
-        TabIcon = Create("ImageLabel", {
-            Image = iconUri,
-            BackgroundTransparency = 1,
-            Size = UDim2.fromOffset(16, 16),
-            Position = UDim2.fromOffset(10, 8),
-            ImageColor3 = Window.Theme.SubText,
-            Parent = TabButton,
-        })
-    end
-
-    local TabLabel = Create("TextLabel", {
-        Text = name,
-        Font = Enum.Font.Gotham,
-        TextSize = 14,
-        TextColor3 = Window.Theme.SubText,
-        BackgroundTransparency = 1,
-        Size = UDim2.new(1, -textInset - 8, 1, 0),
-        Position = UDim2.fromOffset(textInset, 0),
-        TextXAlignment = Enum.TextXAlignment.Left,
-        TextTruncate = Enum.TextTruncate.AtEnd,
-        Parent = TabButton,
-    })
-
-    local TabPage = Create("ScrollingFrame", {
-        Size = UDim2.fromScale(1, 1),
-        BackgroundTransparency = 1,
-        BorderSizePixel = 0,
-        ScrollBarThickness = 3,
-        ScrollBarImageColor3 = Window.Theme.Accent,
-        CanvasSize = UDim2.new(0, 0, 0, 0),
-        AutomaticCanvasSize = Enum.AutomaticSize.Y,
-        Visible = false,
-        Parent = Window._ContentArea,
-    }, {
-        Create("UIListLayout", { Padding = UDim.new(0, 8) }),
-        Create("UIPadding", {
-            PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8),
-            PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 12),
-        }),
-    })
-
-    local Tab = { Button = TabButton, Page = TabPage, Window = Window }
-
-    local function selectTab()
-        for _, t in ipairs(Window.Tabs) do
-            t.Page.Visible = false
-            Tween(t.Button, { BackgroundColor3 = Window.Theme.ElementBG }, 0.15)
-            if t.Label then Tween(t.Label, { TextColor3 = Window.Theme.SubText }, 0.15) end
-            if t.Icon then Tween(t.Icon, { ImageColor3 = Window.Theme.SubText }, 0.15) end
-        end
-        TabPage.Visible = true
-        Tween(TabButton, { BackgroundColor3 = Window.Theme.Accent }, 0.15)
-        Tween(TabLabel, { TextColor3 = Color3.fromRGB(255,255,255) }, 0.15)
-        if TabIcon then Tween(TabIcon, { ImageColor3 = Color3.fromRGB(255,255,255) }, 0.15) end
-        Window.CurrentTab = Tab
-    end
-
-    Tab.Label = TabLabel
-    Tab.Icon = TabIcon
-
-    TabButton.MouseButton1Click:Connect(selectTab)
-
-    table.insert(Window.Tabs, Tab)
-    if #Window.Tabs == 1 then selectTab() end
-
-    table.insert(Window._ThemeRefreshers, function(Theme)
-        if TabPage.Visible then
-            TabButton.BackgroundColor3 = Theme.Accent
-        else
-            TabButton.BackgroundColor3 = Theme.ElementBG
-            TabLabel.TextColor3 = Theme.SubText
-            if TabIcon then TabIcon.ImageColor3 = Theme.SubText end
-        end
-        TabPage.ScrollBarImageColor3 = Theme.Accent
-    end)
+----------------------------------------------------------------
+-- BuildElements: factory pembuat semua elemen UI.
+-- Dipakai oleh Tab langsung, dan oleh Groupbox/Folder (nested container)
+-- lewat pemanggilan rekursif BuildElements(Window, containerFrame).
+----------------------------------------------------------------
+local BuildElements
+BuildElements = function(Window, Container)
+    local API = {}
 
     ------------------------------------------------------------
-    -- Tab:CreateSection (judul pemisah)
+    -- API:CreateSection (judul pemisah)
     ------------------------------------------------------------
-    function Tab:CreateSection(title)
+    function API:CreateSection(title)
         Create("TextLabel", {
             Text = title,
             Font = Enum.Font.GothamBold,
@@ -630,14 +581,14 @@ function KitsuneeIsMe:CreateTab(name, icon)
             BackgroundTransparency = 1,
             Size = UDim2.new(1, 0, 0, 20),
             TextXAlignment = Enum.TextXAlignment.Left,
-            Parent = TabPage,
+            Parent = Container,
         })
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateLabel
+    -- API:CreateLabel
     ------------------------------------------------------------
-    function Tab:CreateLabel(text)
+    function API:CreateLabel(text)
         local lbl = Create("TextLabel", {
             Text = text,
             Font = Enum.Font.Gotham,
@@ -647,16 +598,16 @@ function KitsuneeIsMe:CreateTab(name, icon)
             Size = UDim2.new(1, 0, 0, 18),
             TextXAlignment = Enum.TextXAlignment.Left,
             TextWrapped = true,
-            Parent = TabPage,
+            Parent = Container,
         })
         table.insert(Window._ThemeRefreshers, function(Theme) lbl.TextColor3 = Theme.Text end)
         return lbl
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateButton
+    -- API:CreateButton
     ------------------------------------------------------------
-    function Tab:CreateButton(config)
+    function API:CreateButton(config)
         config = config or {}
         local Text = config.Name or "Button"
         local Callback = config.Callback or function() end
@@ -669,7 +620,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
             TextSize = 14,
             TextColor3 = Window.Theme.Text,
             AutoButtonColor = false,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -693,9 +644,9 @@ function KitsuneeIsMe:CreateTab(name, icon)
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateToggle
+    -- API:CreateToggle
     ------------------------------------------------------------
-    function Tab:CreateToggle(config)
+    function API:CreateToggle(config)
         config = config or {}
         local Text = config.Name or "Toggle"
         local Default = config.Default or false
@@ -705,7 +656,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
         local Holder = Create("Frame", {
             Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = Window.Theme.ElementBG,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -772,13 +723,20 @@ function KitsuneeIsMe:CreateTab(name, icon)
             render(true)
         end)
 
-        return { Set = function(_, v) state = v; KitsuneeIsMe.Flags[Flag] = v; render() end }
+        local function setValue(v)
+            state = v
+            KitsuneeIsMe.Flags[Flag] = v
+            render()
+        end
+        KitsuneeIsMe._FlagSetters[Flag] = setValue
+
+        return { Set = function(_, v) setValue(v) end }
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateSlider
+    -- API:CreateSlider
     ------------------------------------------------------------
-    function Tab:CreateSlider(config)
+    function API:CreateSlider(config)
         config = config or {}
         local Text = config.Name or "Slider"
         local Min = config.Min or 0
@@ -790,7 +748,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
         local Holder = Create("Frame", {
             Size = UDim2.new(1, 0, 0, 46),
             BackgroundColor3 = Window.Theme.ElementBG,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -846,6 +804,15 @@ function KitsuneeIsMe:CreateTab(name, icon)
             pcall(Callback, value)
         end
 
+        local function setValue(value)
+            value = math.clamp(value, Min, Max)
+            local rel = (value - Min) / (Max - Min)
+            Fill.Size = UDim2.fromScale(rel, 1)
+            ValueLabel.Text = tostring(math.floor(value))
+            KitsuneeIsMe.Flags[Flag] = value
+        end
+        KitsuneeIsMe._FlagSetters[Flag] = setValue
+
         Bar.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = true
@@ -876,9 +843,9 @@ function KitsuneeIsMe:CreateTab(name, icon)
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateDropdown
+    -- API:CreateDropdown
     ------------------------------------------------------------
-    function Tab:CreateDropdown(config)
+    function API:CreateDropdown(config)
         config = config or {}
         local Text = config.Name or "Dropdown"
         local Options = config.Options or {}
@@ -890,7 +857,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
             Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = Window.Theme.ElementBG,
             ClipsDescendants = true,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -968,6 +935,10 @@ function KitsuneeIsMe:CreateTab(name, icon)
         end
 
         KitsuneeIsMe.Flags[Flag] = Default
+        KitsuneeIsMe._FlagSetters[Flag] = function(v)
+            Selected.Text = tostring(v)
+            KitsuneeIsMe.Flags[Flag] = v
+        end
 
         table.insert(Window._ThemeRefreshers, function(Theme)
             Holder.BackgroundColor3 = Theme.ElementBG
@@ -978,9 +949,9 @@ function KitsuneeIsMe:CreateTab(name, icon)
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateParagraph (blok teks judul + deskripsi)
+    -- API:CreateParagraph (blok teks judul + deskripsi)
     ------------------------------------------------------------
-    function Tab:CreateParagraph(config)
+    function API:CreateParagraph(config)
         config = config or {}
         local Title = config.Title or "Judul"
         local Content = config.Content or ""
@@ -989,7 +960,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
             Size = UDim2.new(1, 0, 0, 0),
             AutomaticSize = Enum.AutomaticSize.Y,
             BackgroundColor3 = Window.Theme.ElementBG,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
             Create("UIPadding", {
@@ -1033,9 +1004,9 @@ function KitsuneeIsMe:CreateTab(name, icon)
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateKeybind
+    -- API:CreateKeybind
     ------------------------------------------------------------
-    function Tab:CreateKeybind(config)
+    function API:CreateKeybind(config)
         config = config or {}
         local Text = config.Name or "Keybind"
         local Default = config.Default or Enum.KeyCode.E
@@ -1046,7 +1017,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
         local Holder = Create("Frame", {
             Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = Window.Theme.ElementBG,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -1110,13 +1081,19 @@ function KitsuneeIsMe:CreateTab(name, icon)
             KeyBtn.TextColor3 = Theme.Accent
         end)
 
+        KitsuneeIsMe._FlagSetters[Flag] = function(v)
+            currentKey = v
+            KeyBtn.Text = v.Name
+            KitsuneeIsMe.Flags[Flag] = v
+        end
+
         return Holder
     end
 
     ------------------------------------------------------------
-    -- Tab:CreateColorPicker
+    -- API:CreateColorPicker
     ------------------------------------------------------------
-    function Tab:CreateColorPicker(config)
+    function API:CreateColorPicker(config)
         config = config or {}
         local Text = config.Name or "Color"
         local Default = config.Default or Color3.fromRGB(255, 123, 0)
@@ -1127,7 +1104,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
             Size = UDim2.new(1, 0, 0, 36),
             BackgroundColor3 = Window.Theme.ElementBG,
             ClipsDescendants = true,
-            Parent = TabPage,
+            Parent = Container,
         }, {
             Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
         })
@@ -1171,6 +1148,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
         })
 
         local currentColor = { R = math.floor(Default.R * 255), G = math.floor(Default.G * 255), B = math.floor(Default.B * 255) }
+        local channelRefs = {}
         KitsuneeIsMe.Flags[Flag] = Default
 
         local function makeChannel(label, key)
@@ -1214,6 +1192,7 @@ function KitsuneeIsMe:CreateTab(name, icon)
                 TextXAlignment = Enum.TextXAlignment.Right,
                 Parent = Row,
             })
+            channelRefs[key] = { Fill = Fill, ValLbl = ValLbl, Bar = Bar }
 
             local dragging = false
             local function setFromX(xpos)
@@ -1249,6 +1228,21 @@ function KitsuneeIsMe:CreateTab(name, icon)
         makeChannel("G", "G")
         makeChannel("B", "B")
 
+        KitsuneeIsMe._FlagSetters[Flag] = function(v)
+            currentColor.R = math.floor(v.R * 255)
+            currentColor.G = math.floor(v.G * 255)
+            currentColor.B = math.floor(v.B * 255)
+            Swatch.BackgroundColor3 = v
+            for _, key in ipairs({ "R", "G", "B" }) do
+                local ref = channelRefs[key]
+                if ref then
+                    ref.Fill.Size = UDim2.fromScale(currentColor[key] / 255, 1)
+                    ref.ValLbl.Text = tostring(currentColor[key])
+                end
+            end
+            KitsuneeIsMe.Flags[Flag] = v
+        end
+
         local open = false
         Head.MouseButton1Click:Connect(function()
             open = not open
@@ -1265,6 +1259,544 @@ function KitsuneeIsMe:CreateTab(name, icon)
 
         return Holder
     end
+
+
+    ------------------------------------------------------------
+    -- API:CreateDivider (garis pemisah tipis)
+    ------------------------------------------------------------
+    function API:CreateDivider()
+        local Line = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 1),
+            BackgroundColor3 = Window.Theme.Stroke,
+            BorderSizePixel = 0,
+            Parent = Container,
+        })
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Line.BackgroundColor3 = Theme.Stroke
+        end)
+        return Line
+    end
+
+    ------------------------------------------------------------
+    -- API:CreateTextbox (+ alias CreateInput)
+    ------------------------------------------------------------
+    function API:CreateTextbox(config)
+        config = config or {}
+        local Text = config.Name or "Textbox"
+        local Placeholder = config.Placeholder or "..."
+        local Default = config.Default or ""
+        local Flag = config.Flag or Text
+        local Callback = config.Callback or function() end
+        local ClearOnFocus = config.ClearOnFocus or false
+
+        local Holder = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 58),
+            BackgroundColor3 = Window.Theme.ElementBG,
+            Parent = Container,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
+        })
+
+        Create("TextLabel", {
+            Text = Text,
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextColor3 = Window.Theme.SubText,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -24, 0, 18),
+            Position = UDim2.fromOffset(12, 6),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = Holder,
+        })
+
+        local Box = Create("TextBox", {
+            Text = Default,
+            PlaceholderText = Placeholder,
+            PlaceholderColor3 = Window.Theme.SubText,
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextColor3 = Window.Theme.Text,
+            BackgroundColor3 = Window.Theme.Background,
+            ClearTextOnFocus = ClearOnFocus,
+            Size = UDim2.new(1, -24, 0, 26),
+            Position = UDim2.fromOffset(12, 26),
+            Parent = Holder,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 5) }),
+            Create("UIPadding", { PaddingLeft = UDim.new(0, 8), PaddingRight = UDim.new(0, 8) }),
+        })
+
+        KitsuneeIsMe.Flags[Flag] = Default
+        KitsuneeIsMe._FlagSetters[Flag] = function(v)
+            Box.Text = v
+            KitsuneeIsMe.Flags[Flag] = v
+        end
+
+        Box.FocusLost:Connect(function(enterPressed)
+            KitsuneeIsMe.Flags[Flag] = Box.Text
+            pcall(Callback, Box.Text, enterPressed)
+        end)
+
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Holder.BackgroundColor3 = Theme.ElementBG
+            Box.BackgroundColor3 = Theme.Background
+            Box.TextColor3 = Theme.Text
+        end)
+
+        return Holder
+    end
+    API.CreateInput = API.CreateTextbox -- alias, sama persis fungsinya
+
+    ------------------------------------------------------------
+    -- API:CreateMultiDropdown (pilih lebih dari satu opsi)
+    ------------------------------------------------------------
+    function API:CreateMultiDropdown(config)
+        config = config or {}
+        local Text = config.Name or "MultiDropdown"
+        local Options = config.Options or {}
+        local Default = config.Default or {}
+        local Flag = config.Flag or Text
+        local Callback = config.Callback or function() end
+
+        local selected = {}
+        for _, v in ipairs(Default) do selected[v] = true end
+
+        local Holder = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 36),
+            BackgroundColor3 = Window.Theme.ElementBG,
+            ClipsDescendants = true,
+            Parent = Container,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
+        })
+
+        local Head = Create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 36),
+            BackgroundTransparency = 1,
+            Text = "",
+            Parent = Holder,
+        })
+
+        Create("TextLabel", {
+            Text = Text,
+            Font = Enum.Font.Gotham,
+            TextSize = 14,
+            TextColor3 = Window.Theme.Text,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0.5, 0, 0, 36),
+            Position = UDim2.fromOffset(12, 0),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = Head,
+        })
+
+        local CountLbl = Create("TextLabel", {
+            Text = #Default .. " dipilih",
+            Font = Enum.Font.Gotham,
+            TextSize = 13,
+            TextColor3 = Window.Theme.Accent,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(0.5, -30, 0, 36),
+            Position = UDim2.new(0.5, 0, 0, 0),
+            TextXAlignment = Enum.TextXAlignment.Right,
+            Parent = Head,
+        })
+
+        local OptionList = Create("Frame", {
+            Size = UDim2.new(1, -12, 0, #Options * 28),
+            Position = UDim2.fromOffset(6, 38),
+            BackgroundTransparency = 1,
+            Parent = Holder,
+        }, {
+            Create("UIListLayout", { Padding = UDim.new(0, 2) }),
+        })
+
+        local open = false
+        local function toggleOpen()
+            open = not open
+            if open then
+                Tween(Holder, { Size = UDim2.new(1, 0, 0, 40 + #Options * 28) }, 0.2)
+            else
+                Tween(Holder, { Size = UDim2.new(1, 0, 0, 36) }, 0.2)
+            end
+        end
+        Head.MouseButton1Click:Connect(toggleOpen)
+
+        local checkRefs = {}
+        local function refreshCount()
+            local list = {}
+            for _, opt in ipairs(Options) do
+                if selected[opt] then table.insert(list, opt) end
+            end
+            CountLbl.Text = #list .. " dipilih"
+            KitsuneeIsMe.Flags[Flag] = list
+            pcall(Callback, list)
+        end
+
+        for _, opt in ipairs(Options) do
+            local OptBtn = Create("TextButton", {
+                Size = UDim2.new(1, 0, 0, 26),
+                BackgroundColor3 = Window.Theme.Background,
+                Text = "",
+                AutoButtonColor = false,
+                Parent = OptionList,
+            }, {
+                Create("UICorner", { CornerRadius = UDim.new(0, 4) }),
+            })
+            local Check = Create("Frame", {
+                Size = UDim2.fromOffset(14, 14),
+                Position = UDim2.fromOffset(8, 6),
+                BackgroundColor3 = selected[opt] and Window.Theme.Accent or Window.Theme.Stroke,
+                Parent = OptBtn,
+            }, {
+                Create("UICorner", { CornerRadius = UDim.new(0, 3) }),
+            })
+            Create("TextLabel", {
+                Text = tostring(opt),
+                Font = Enum.Font.Gotham,
+                TextSize = 13,
+                TextColor3 = Window.Theme.SubText,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, -32, 1, 0),
+                Position = UDim2.fromOffset(28, 0),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = OptBtn,
+            })
+            OptBtn.MouseButton1Click:Connect(function()
+                if selected[opt] then selected[opt] = nil else selected[opt] = true end
+                Check.BackgroundColor3 = selected[opt] and Window.Theme.Accent or Window.Theme.Stroke
+                refreshCount()
+            end)
+            checkRefs[opt] = Check
+        end
+
+        KitsuneeIsMe.Flags[Flag] = Default
+        KitsuneeIsMe._FlagSetters[Flag] = function(list)
+            selected = {}
+            for _, v in ipairs(list) do selected[v] = true end
+            for opt, Check in pairs(checkRefs) do
+                Check.BackgroundColor3 = selected[opt] and Window.Theme.Accent or Window.Theme.Stroke
+            end
+            refreshCount()
+        end
+
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Holder.BackgroundColor3 = Theme.ElementBG
+            CountLbl.TextColor3 = Theme.Accent
+        end)
+
+        return Holder
+    end
+
+    ------------------------------------------------------------
+    -- API:CreateCodeBlock (tampilan kode/teks read-only + tombol Copy)
+    ------------------------------------------------------------
+    function API:CreateCodeBlock(config)
+        config = config or {}
+        local Title = config.Title
+        local Code = config.Code or ""
+
+        local Holder = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundColor3 = Window.Theme.Background,
+            Parent = Container,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
+            Create("UIStroke", { Color = Window.Theme.Stroke, Thickness = 1 }),
+            Create("UIPadding", {
+                PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12),
+                PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10),
+            }),
+            Create("UIListLayout", { Padding = UDim.new(0, 6) }),
+        })
+
+        if Title then
+            local HeadRow = Create("Frame", {
+                Size = UDim2.new(1, 0, 0, 18),
+                BackgroundTransparency = 1,
+                Parent = Holder,
+            })
+            Create("TextLabel", {
+                Text = Title,
+                Font = Enum.Font.GothamBold,
+                TextSize = 12,
+                TextColor3 = Window.Theme.SubText,
+                BackgroundTransparency = 1,
+                Size = UDim2.new(1, -50, 1, 0),
+                TextXAlignment = Enum.TextXAlignment.Left,
+                Parent = HeadRow,
+            })
+            local CopyBtn = Create("TextButton", {
+                Text = "Copy",
+                Font = Enum.Font.Gotham,
+                TextSize = 11,
+                TextColor3 = Window.Theme.Accent,
+                BackgroundTransparency = 1,
+                Size = UDim2.fromOffset(46, 18),
+                Position = UDim2.new(1, -46, 0, 0),
+                Parent = HeadRow,
+            })
+            CopyBtn.MouseButton1Click:Connect(function()
+                pcall(function() setclipboard(Code) end)
+                CopyBtn.Text = "Copied!"
+                task.delay(1.2, function() if CopyBtn then CopyBtn.Text = "Copy" end end)
+            end)
+        end
+
+        Create("TextLabel", {
+            Text = Code,
+            Font = Enum.Font.Code,
+            TextSize = 12,
+            TextColor3 = Window.Theme.Text,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            TextWrapped = true,
+            Parent = Holder,
+        })
+
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Holder.BackgroundColor3 = Theme.Background
+        end)
+
+        return Holder
+    end
+
+    ------------------------------------------------------------
+    -- API:CreateGroupbox (kotak statis berisi elemen nested)
+    ------------------------------------------------------------
+    function API:CreateGroupbox(config)
+        config = config or {}
+        local Title = config.Name or config.Title or "Group"
+
+        local Box = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            BackgroundColor3 = Window.Theme.Background,
+            Parent = Container,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 8) }),
+            Create("UIStroke", { Color = Window.Theme.Stroke, Thickness = 1 }),
+            Create("UIPadding", {
+                PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10),
+                PaddingTop = UDim.new(0, 10), PaddingBottom = UDim.new(0, 10),
+            }),
+        })
+
+        local TitleLbl = Create("TextLabel", {
+            Text = Title,
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextColor3 = Window.Theme.SubText,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, 18),
+            Parent = Box,
+        })
+
+        local Inner = Create("Frame", {
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            Position = UDim2.fromOffset(0, 24),
+            BackgroundTransparency = 1,
+            Parent = Box,
+        }, {
+            Create("UIListLayout", { Padding = UDim.new(0, 8) }),
+        })
+
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Box.BackgroundColor3 = Theme.Background
+            TitleLbl.TextColor3 = Theme.SubText
+        end)
+
+        local InnerAPI = BuildElements(Window, Inner)
+        InnerAPI.Instance = Box
+        return InnerAPI
+    end
+
+    ------------------------------------------------------------
+    -- API:CreateFolder (seperti Groupbox tapi bisa dilipat/expand)
+    ------------------------------------------------------------
+    function API:CreateFolder(config)
+        config = config or {}
+        local Title = config.Name or config.Title or "Folder"
+        local Opened = config.Opened
+        if Opened == nil then Opened = false end
+
+        local Box = Create("Frame", {
+            Size = Opened and UDim2.new(1, 0, 0, 0) or UDim2.new(1, 0, 0, 32),
+            AutomaticSize = Opened and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
+            BackgroundColor3 = Window.Theme.Background,
+            ClipsDescendants = true,
+            Parent = Container,
+        }, {
+            Create("UICorner", { CornerRadius = UDim.new(0, 8) }),
+            Create("UIStroke", { Color = Window.Theme.Stroke, Thickness = 1 }),
+        })
+
+        local Head = Create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 32),
+            BackgroundTransparency = 1,
+            Text = "",
+            Parent = Box,
+        })
+        Create("TextLabel", {
+            Text = Title,
+            Font = Enum.Font.GothamBold,
+            TextSize = 13,
+            TextColor3 = Window.Theme.Text,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, -30, 1, 0),
+            Position = UDim2.fromOffset(10, 0),
+            TextXAlignment = Enum.TextXAlignment.Left,
+            Parent = Head,
+        })
+        local Arrow = Create("TextLabel", {
+            Text = Opened and "-" or "+",
+            Font = Enum.Font.GothamBold,
+            TextSize = 16,
+            TextColor3 = Window.Theme.SubText,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(20, 32),
+            Position = UDim2.new(1, -26, 0, 0),
+            Parent = Head,
+        })
+
+        local Inner = Create("Frame", {
+            Size = UDim2.new(1, -20, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            Position = UDim2.fromOffset(10, 36),
+            BackgroundTransparency = 1,
+            Visible = Opened,
+            Parent = Box,
+        }, {
+            Create("UIListLayout", { Padding = UDim.new(0, 8) }),
+            Create("UIPadding", { PaddingBottom = UDim.new(0, 10) }),
+        })
+
+        Head.MouseButton1Click:Connect(function()
+            Opened = not Opened
+            Inner.Visible = Opened
+            Arrow.Text = Opened and "-" or "+"
+            if Opened then
+                Box.AutomaticSize = Enum.AutomaticSize.Y
+            else
+                Box.AutomaticSize = Enum.AutomaticSize.None
+                Box.Size = UDim2.new(1, 0, 0, 32)
+            end
+        end)
+
+        table.insert(Window._ThemeRefreshers, function(Theme)
+            Box.BackgroundColor3 = Theme.Background
+            Arrow.TextColor3 = Theme.SubText
+        end)
+
+        local InnerAPI = BuildElements(Window, Inner)
+        InnerAPI.Instance = Box
+        return InnerAPI
+    end
+
+    return API
+end
+
+function KitsuneeIsMe:CreateTab(name, icon)
+    local Window = self
+    local iconUri = resolveIcon(icon)
+    local textInset = iconUri and 34 or 12
+
+    local TabButton = Create("TextButton", {
+        Size = UDim2.new(1, 0, 0, 32),
+        BackgroundColor3 = Window.Theme.ElementBG,
+        Text = "",
+        AutoButtonColor = false,
+        Parent = Window._TabList,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 6) }),
+    })
+
+    local TabIcon
+    if iconUri then
+        TabIcon = Create("ImageLabel", {
+            Image = iconUri,
+            BackgroundTransparency = 1,
+            Size = UDim2.fromOffset(16, 16),
+            Position = UDim2.fromOffset(10, 8),
+            ImageColor3 = Window.Theme.SubText,
+            Parent = TabButton,
+        })
+    end
+
+    local TabLabel = Create("TextLabel", {
+        Text = name,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextColor3 = Window.Theme.SubText,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, -textInset - 8, 1, 0),
+        Position = UDim2.fromOffset(textInset, 0),
+        TextXAlignment = Enum.TextXAlignment.Left,
+        TextTruncate = Enum.TextTruncate.AtEnd,
+        Parent = TabButton,
+    })
+
+    local TabPage = Create("ScrollingFrame", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        BorderSizePixel = 0,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Window.Theme.Accent,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        Visible = false,
+        Parent = Window._ContentArea,
+    }, {
+        Create("UIListLayout", { Padding = UDim.new(0, 8) }),
+        Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8),
+            PaddingTop = UDim.new(0, 4), PaddingBottom = UDim.new(0, 12),
+        }),
+    })
+
+    local Tab = BuildElements(Window, TabPage)
+    Tab.Button = TabButton
+    Tab.Page = TabPage
+    Tab.Window = Window
+    Tab.Name = name
+
+    local function selectTab()
+        for _, t in ipairs(Window.Tabs) do
+            t.Page.Visible = false
+            Tween(t.Button, { BackgroundColor3 = Window.Theme.ElementBG }, 0.15)
+            if t.Label then Tween(t.Label, { TextColor3 = Window.Theme.SubText }, 0.15) end
+            if t.Icon then Tween(t.Icon, { ImageColor3 = Window.Theme.SubText }, 0.15) end
+        end
+        TabPage.Visible = true
+        Tween(TabButton, { BackgroundColor3 = Window.Theme.Accent }, 0.15)
+        Tween(TabLabel, { TextColor3 = Color3.fromRGB(255,255,255) }, 0.15)
+        if TabIcon then Tween(TabIcon, { ImageColor3 = Color3.fromRGB(255,255,255) }, 0.15) end
+        Window.CurrentTab = Tab
+    end
+
+    Tab.Label = TabLabel
+    Tab.Icon = TabIcon
+    Tab._Select = selectTab
+
+    TabButton.MouseButton1Click:Connect(selectTab)
+
+    table.insert(Window.Tabs, Tab)
+    if #Window.Tabs == 1 then selectTab() end
+
+    table.insert(Window._ThemeRefreshers, function(Theme)
+        if TabPage.Visible then
+            TabButton.BackgroundColor3 = Theme.Accent
+        else
+            TabButton.BackgroundColor3 = Theme.ElementBG
+            TabLabel.TextColor3 = Theme.SubText
+            if TabIcon then TabIcon.ImageColor3 = Theme.SubText end
+        end
+        TabPage.ScrollBarImageColor3 = Theme.Accent
+    end)
 
     return Tab
 end
@@ -1572,6 +2104,376 @@ function KitsuneeIsMe:Notify(config)
             if Toast then Toast:Destroy() end
         end
     end)
+end
+
+----------------------------------------------------------------
+-- Dialog: modal dengan tombol custom
+----------------------------------------------------------------
+-- Contoh:
+--   KitsuneeIsMe:Dialog({
+--       Title = "Hapus config?", Content = "Aksi ini nggak bisa dibatalkan.",
+--       Buttons = {
+--           { Text = "Batal" },
+--           { Text = "Hapus", Primary = true, Callback = function() end },
+--       },
+--   })
+function KitsuneeIsMe:Dialog(config)
+    config = config or {}
+    local Title = config.Title or "Dialog"
+    local Content = config.Content or ""
+    local Buttons = config.Buttons or { { Text = "OK" } }
+    local Theme = Themes[config.Theme or "Kitsune"] or Themes.Kitsune
+
+    local existing = CoreGui:FindFirstChild("KitsuneeIsMe_Dialog")
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Create("ScreenGui", {
+        Name = "KitsuneeIsMe_Dialog", ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = CoreGui,
+    })
+    Create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.45, BorderSizePixel = 0, Parent = ScreenGui,
+    })
+
+    local Panel = Create("Frame", {
+        Size = UDim2.fromOffset(320, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Position = UDim2.new(0.5, -160, 0.5, -80),
+        BackgroundColor3 = Theme.Background, BorderSizePixel = 0, Parent = ScreenGui,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 12) }),
+        Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+        Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18),
+            PaddingTop = UDim.new(0, 18), PaddingBottom = UDim.new(0, 18),
+        }),
+        Create("UIListLayout", { Padding = UDim.new(0, 10) }),
+    })
+
+    Create("TextLabel", {
+        Text = Title, Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Theme.Text,
+        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20),
+        TextXAlignment = Enum.TextXAlignment.Left, Parent = Panel,
+    })
+    Create("TextLabel", {
+        Text = Content, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = Theme.SubText,
+        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 0), AutomaticSize = Enum.AutomaticSize.Y,
+        TextWrapped = true, TextXAlignment = Enum.TextXAlignment.Left, Parent = Panel,
+    })
+
+    local BtnRow = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = Panel,
+    }, {
+        Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+            HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        }),
+    })
+
+    for _, btnCfg in ipairs(Buttons) do
+        local isPrimary = btnCfg.Primary
+        local Btn = Create("TextButton", {
+            Text = btnCfg.Text or "OK",
+            Font = Enum.Font.GothamBold, TextSize = 13,
+            TextColor3 = isPrimary and Color3.fromRGB(255, 255, 255) or Theme.Text,
+            BackgroundColor3 = isPrimary and Theme.Accent or Theme.ElementBG,
+            Size = UDim2.fromOffset(90, 36), AutoButtonColor = false, Parent = BtnRow,
+        }, { Create("UICorner", { CornerRadius = UDim.new(0, 7) }) })
+        Btn.MouseButton1Click:Connect(function()
+            ScreenGui:Destroy()
+            if btnCfg.Callback then pcall(btnCfg.Callback) end
+        end)
+    end
+end
+
+----------------------------------------------------------------
+-- Prompt: modal dengan satu input teks
+----------------------------------------------------------------
+function KitsuneeIsMe:Prompt(config)
+    config = config or {}
+    local Title = config.Title or "Input"
+    local Placeholder = config.Placeholder or "..."
+    local Default = config.Default or ""
+    local Callback = config.Callback or function() end
+    local Theme = Themes[config.Theme or "Kitsune"] or Themes.Kitsune
+
+    local existing = CoreGui:FindFirstChild("KitsuneeIsMe_Prompt")
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Create("ScreenGui", {
+        Name = "KitsuneeIsMe_Prompt", ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = CoreGui,
+    })
+    Create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.45, BorderSizePixel = 0, Parent = ScreenGui,
+    })
+
+    local Panel = Create("Frame", {
+        Size = UDim2.fromOffset(320, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        Position = UDim2.new(0.5, -160, 0.5, -70),
+        BackgroundColor3 = Theme.Background, BorderSizePixel = 0, Parent = ScreenGui,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 12) }),
+        Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+        Create("UIPadding", {
+            PaddingLeft = UDim.new(0, 18), PaddingRight = UDim.new(0, 18),
+            PaddingTop = UDim.new(0, 18), PaddingBottom = UDim.new(0, 18),
+        }),
+        Create("UIListLayout", { Padding = UDim.new(0, 10) }),
+    })
+
+    Create("TextLabel", {
+        Text = Title, Font = Enum.Font.GothamBold, TextSize = 16, TextColor3 = Theme.Text,
+        BackgroundTransparency = 1, Size = UDim2.new(1, 0, 0, 20),
+        TextXAlignment = Enum.TextXAlignment.Left, Parent = Panel,
+    })
+
+    local Box = Create("TextBox", {
+        Text = Default, PlaceholderText = Placeholder, PlaceholderColor3 = Theme.SubText,
+        Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = Theme.Text,
+        BackgroundColor3 = Theme.ElementBG, Size = UDim2.new(1, 0, 0, 36), Parent = Panel,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 7) }),
+        Create("UIPadding", { PaddingLeft = UDim.new(0, 10), PaddingRight = UDim.new(0, 10) }),
+    })
+
+    local BtnRow = Create("Frame", {
+        Size = UDim2.new(1, 0, 0, 36), BackgroundTransparency = 1, Parent = Panel,
+    }, {
+        Create("UIListLayout", {
+            FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+            HorizontalAlignment = Enum.HorizontalAlignment.Right,
+        }),
+    })
+
+    local CancelBtn = Create("TextButton", {
+        Text = "Batal", Font = Enum.Font.GothamBold, TextSize = 13, TextColor3 = Theme.Text,
+        BackgroundColor3 = Theme.ElementBG, Size = UDim2.fromOffset(90, 36),
+        AutoButtonColor = false, Parent = BtnRow,
+    }, { Create("UICorner", { CornerRadius = UDim.new(0, 7) }) })
+    local OkBtn = Create("TextButton", {
+        Text = "OK", Font = Enum.Font.GothamBold, TextSize = 13,
+        TextColor3 = Color3.fromRGB(255, 255, 255), BackgroundColor3 = Theme.Accent,
+        Size = UDim2.fromOffset(90, 36), AutoButtonColor = false, Parent = BtnRow,
+    }, { Create("UICorner", { CornerRadius = UDim.new(0, 7) }) })
+
+    CancelBtn.MouseButton1Click:Connect(function() ScreenGui:Destroy() end)
+    OkBtn.MouseButton1Click:Connect(function()
+        local text = Box.Text
+        ScreenGui:Destroy()
+        pcall(Callback, text)
+    end)
+end
+
+----------------------------------------------------------------
+-- Loading: overlay spinner + teks, return handle {SetText, Close}
+----------------------------------------------------------------
+function KitsuneeIsMe:Loading(config)
+    config = config or {}
+    local Title = config.Title or config.Text or "Loading..."
+    local Theme = Themes[config.Theme or "Kitsune"] or Themes.Kitsune
+
+    local existing = CoreGui:FindFirstChild("KitsuneeIsMe_Loading")
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Create("ScreenGui", {
+        Name = "KitsuneeIsMe_Loading", ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = CoreGui,
+    })
+    Create("Frame", {
+        Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(0, 0, 0),
+        BackgroundTransparency = 0.5, BorderSizePixel = 0, Parent = ScreenGui,
+    })
+
+    local Panel = Create("Frame", {
+        Size = UDim2.fromOffset(220, 90), Position = UDim2.new(0.5, -110, 0.5, -45),
+        BackgroundColor3 = Theme.Background, BorderSizePixel = 0, Parent = ScreenGui,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 12) }),
+        Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+    })
+
+    local Spinner = Create("Frame", {
+        Size = UDim2.fromOffset(28, 28), Position = UDim2.new(0.5, -14, 0, 16),
+        BackgroundTransparency = 1, Parent = Panel,
+    })
+    local Dot = Create("Frame", {
+        Size = UDim2.fromOffset(6, 6), Position = UDim2.new(0.5, -3, 0, 0),
+        BackgroundColor3 = Theme.Accent, Parent = Spinner,
+    }, { Create("UICorner", { CornerRadius = UDim.new(1, 0) }) })
+
+    task.spawn(function()
+        local angle = 0
+        while Dot and Dot.Parent do
+            angle = (angle + 6) % 360
+            local rad = math.rad(angle)
+            Dot.Position = UDim2.new(0.5, -3 + 11 * math.sin(rad), 0.5, -3 - 11 * math.cos(rad))
+            task.wait(0.02)
+        end
+    end)
+
+    local TitleLbl = Create("TextLabel", {
+        Text = Title, Font = Enum.Font.Gotham, TextSize = 13, TextColor3 = Theme.SubText,
+        BackgroundTransparency = 1, Size = UDim2.new(1, -20, 0, 20), Position = UDim2.fromOffset(10, 54),
+        TextXAlignment = Enum.TextXAlignment.Center, Parent = Panel,
+    })
+
+    return {
+        SetText = function(_, text) TitleLbl.Text = text end,
+        Close = function() if ScreenGui then ScreenGui:Destroy() end end,
+    }
+end
+
+----------------------------------------------------------------
+-- Watermark: label kecil mengambang (FPS/username/dsb), draggable
+----------------------------------------------------------------
+function KitsuneeIsMe:Watermark(config)
+    config = config or {}
+    local Text = config.Text or "KitsuneeIsMe"
+    local Theme = Themes[config.Theme or "Kitsune"] or Themes.Kitsune
+
+    local existing = CoreGui:FindFirstChild("KitsuneeIsMe_Watermark")
+    if existing then existing:Destroy() end
+
+    local ScreenGui = Create("ScreenGui", {
+        Name = "KitsuneeIsMe_Watermark", ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling, Parent = CoreGui,
+    })
+    local Bar = Create("Frame", {
+        Size = UDim2.fromOffset(0, 28), AutomaticSize = Enum.AutomaticSize.X,
+        Position = UDim2.fromOffset(16, 16),
+        BackgroundColor3 = Theme.Background, BorderSizePixel = 0, Parent = ScreenGui,
+    }, {
+        Create("UICorner", { CornerRadius = UDim.new(0, 7) }),
+        Create("UIStroke", { Color = Theme.Stroke, Thickness = 1 }),
+        Create("UIPadding", { PaddingLeft = UDim.new(0, 12), PaddingRight = UDim.new(0, 12) }),
+    })
+    local Lbl = Create("TextLabel", {
+        Text = Text, Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = Theme.Text,
+        BackgroundTransparency = 1, Size = UDim2.new(0, 0, 1, 0),
+        AutomaticSize = Enum.AutomaticSize.X, Parent = Bar,
+    })
+    MakeDraggable(Bar, Bar)
+
+    return {
+        SetText = function(_, text) Lbl.Text = text end,
+        Show = function() ScreenGui.Enabled = true end,
+        Hide = function() ScreenGui.Enabled = false end,
+        Destroy = function() ScreenGui:Destroy() end,
+    }
+end
+
+----------------------------------------------------------------
+-- SetAccent: override warna accent (semua tema, atau satu tema tertentu)
+----------------------------------------------------------------
+function KitsuneeIsMe:SetAccent(color, themeName)
+    if typeof(color) == "string" then
+        local ok, c = pcall(function() return Color3.fromHex(color) end)
+        if ok then color = c end
+    end
+    if themeName and Themes[themeName] then
+        Themes[themeName].Accent = color
+    else
+        for _, t in pairs(Themes) do
+            t.Accent = color
+        end
+    end
+    for _, w in ipairs(self._Windows) do
+        pcall(function() w:SetTheme(w.ThemeName) end)
+    end
+end
+
+----------------------------------------------------------------
+-- Destroy: tutup semua GUI KitsuneeIsMe (hub, notify, key system, dll)
+----------------------------------------------------------------
+function KitsuneeIsMe:Destroy()
+    for _, w in ipairs(self._Windows) do
+        pcall(function() w.ScreenGui:Destroy() end)
+    end
+    self._Windows = {}
+    for _, guiName in ipairs({
+        "KitsuneeIsMe_NotifyContainer", "KitsuneeIsMe_KeySystem",
+        "KitsuneeIsMe_Watermark", "KitsuneeIsMe_Dialog",
+        "KitsuneeIsMe_Prompt", "KitsuneeIsMe_Loading",
+    }) do
+        local g = CoreGui:FindFirstChild(guiName)
+        if g then g:Destroy() end
+    end
+end
+
+----------------------------------------------------------------
+-- CONFIG SYSTEM: Save/Load/Delete — simpan seluruh KitsuneeIsMe.Flags
+----------------------------------------------------------------
+local function serializeFlags()
+    local out = {}
+    for k, v in pairs(KitsuneeIsMe.Flags) do
+        local t = typeof(v)
+        if t == "Color3" then
+            out[k] = { __type = "Color3", R = v.R, G = v.G, B = v.B }
+        elseif t == "EnumItem" then
+            out[k] = { __type = "Enum", enum = tostring(v.EnumType), name = v.Name }
+        else
+            out[k] = v
+        end
+    end
+    return out
+end
+
+local function deserializeValue(v)
+    if typeof(v) == "table" and v.__type == "Color3" then
+        return Color3.new(v.R, v.G, v.B)
+    elseif typeof(v) == "table" and v.__type == "Enum" then
+        local ok, item = pcall(function() return Enum[v.enum][v.name] end)
+        if ok then return item end
+        return nil
+    end
+    return v
+end
+
+-- KitsuneeIsMe:SaveConfig("namaconfig")
+function KitsuneeIsMe:SaveConfig(name)
+    name = name or "KitsuneeIsMe_Config"
+    local ok, err = pcall(function()
+        local data = serializeFlags()
+        local json = HttpService:JSONEncode(data)
+        writefile(name .. ".json", json)
+    end)
+    if not ok then
+        warn("[KitsuneeIsMe] Gagal menyimpan config (executor mungkin nggak support writefile): " .. tostring(err))
+    end
+    return ok
+end
+
+-- KitsuneeIsMe:LoadConfig("namaconfig") — otomatis update semua elemen UI yang terkait Flag-nya
+function KitsuneeIsMe:LoadConfig(name)
+    name = name or "KitsuneeIsMe_Config"
+    local ok, result = pcall(function()
+        if not (isfile and isfile(name .. ".json")) then return nil end
+        local raw = readfile(name .. ".json")
+        return HttpService:JSONDecode(raw)
+    end)
+    if not ok or not result then return false end
+    for flag, rawValue in pairs(result) do
+        local value = deserializeValue(rawValue)
+        KitsuneeIsMe.Flags[flag] = value
+        local setter = KitsuneeIsMe._FlagSetters[flag]
+        if setter then pcall(setter, value) end
+    end
+    return true
+end
+
+-- KitsuneeIsMe:DeleteConfig("namaconfig")
+function KitsuneeIsMe:DeleteConfig(name)
+    name = name or "KitsuneeIsMe_Config"
+    local ok = pcall(function()
+        if delfile and isfile and isfile(name .. ".json") then
+            delfile(name .. ".json")
+        end
+    end)
+    return ok
 end
 
 return KitsuneeIsMe
